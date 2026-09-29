@@ -1,0 +1,47 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-bin: false
+      - name: Verify platform and version
+        run: |
+          test "$(uname -m)" = arm64
+          version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["packages"][0]["version"])')
+          test "$GITHUB_REF_NAME" = "v$version"
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+      - run: cargo build --locked --release
+      - run: target/release/keychain-secret --version
+      - name: Archive
+        run: |
+          mkdir archive
+          cp target/release/keychain-secret LICENSE README.md archive/
+          tar -czf "keychain-secret-$GITHUB_REF_NAME-darwin-arm64.tar.gz" -C archive keychain-secret LICENSE README.md
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-macos
+          path: keychain-secret-*.tar.gz
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-macos
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: keychain-secret-*.tar.gz
+          generate_release_notes: true
+          fail_on_unmatched_files: true
